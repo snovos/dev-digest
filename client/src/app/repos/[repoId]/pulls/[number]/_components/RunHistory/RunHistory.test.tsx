@@ -4,12 +4,14 @@
  * a settled run is colored/labelled by its denormalized blocker/finding counts,
  * and shows the review score ring.
  */
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, cleanup, fireEvent } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import type { RunSummary } from "@devdigest/shared";
 import messages from "../../../../../../../../messages/en/prReview.json";
 import { RunHistory } from "./RunHistory";
+import type { ReviewRecord } from "@devdigest/shared";
+import type { Severity } from "@devdigest/ui";
 
 afterEach(cleanup);
 
@@ -35,10 +37,14 @@ function run(o: Partial<RunSummary>): RunSummary {
   };
 }
 
-function renderRuns(runs: RunSummary[]) {
+function renderRuns(
+  runs: RunSummary[],
+  reviews: ReviewRecord[] = [],
+  onOpenFindings?: (runId: string, severity: Severity) => void,
+) {
   return render(
     <NextIntlClientProvider locale="en" messages={{ prReview: messages }}>
-      <RunHistory runs={runs} onOpenTrace={() => {}} />
+      <RunHistory runs={runs} reviews={reviews} onOpenTrace={() => {}} onOpenFindings={onOpenFindings} />
     </NextIntlClientProvider>,
   );
 }
@@ -92,5 +98,54 @@ describe("RunHistory — tokens and cost", () => {
   it("shows '-' for a failed run, which has no usage", () => {
     renderRuns([run({ status: "failed", error: "boom", cost_usd: null, score: null, blockers: null })]);
     expect(screen.getByText("-")).toBeInTheDocument();
+  });
+});
+
+function review(runId: string, severities: string[]): ReviewRecord {
+  return {
+    id: `rev-${runId}`,
+    run_id: runId,
+    findings: severities.map((severity, i) => ({
+      id: `${runId}-${i}`,
+      severity,
+      category: "bug",
+      title: `t${i}`,
+      file: "a.ts",
+      start_line: 1,
+      end_line: 1,
+      rationale: "",
+      confidence: 0.9,
+    })),
+  } as unknown as ReviewRecord;
+}
+
+describe("RunHistory — findings counters", () => {
+  it("shows a counter per severity instead of the old findings text", () => {
+    renderRuns(
+      [run({ run_id: "run-1", status: "done", score: 38, blockers: 2 })],
+      [review("run-1", ["CRITICAL", "CRITICAL", "WARNING", "SUGGESTION"])],
+      () => {},
+    );
+    expect(screen.getByRole("button", { name: /2 Critical/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1 Warning/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /1 Suggestion/ })).toBeInTheDocument();
+    expect(screen.queryByText(/finding\(s\)/)).not.toBeInTheDocument();
+  });
+
+  it("clicking a counter reports the run and the clicked severity", () => {
+    const onOpen = vi.fn();
+    renderRuns(
+      [run({ run_id: "run-1", status: "done", score: 38, blockers: 2 })],
+      [review("run-1", ["CRITICAL", "WARNING"])],
+      onOpen,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /1 Warning/ }));
+    expect(onOpen).toHaveBeenCalledWith("run-1", "WARNING");
+  });
+
+  it("a done run with no review shows a dash, not zero counters", () => {
+    renderRuns([run({ run_id: "run-9", status: "done", score: null, blockers: null })]);
+    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
   });
 });

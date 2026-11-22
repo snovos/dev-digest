@@ -4,8 +4,10 @@
 
 import React from "react";
 import { useTranslations } from "next-intl";
-import { Toggle, EmptyState } from "@devdigest/ui";
+import { Toggle, EmptyState, type Severity } from "@devdigest/ui";
 import type { FindingRecord } from "@devdigest/shared";
+import { SeverityFilterPills } from "@/components/SeverityFilterPills";
+import { tallySeverities } from "@/lib/severity-tally";
 import { FindingCard } from "../FindingCard";
 import { useFindingAction } from "../../../../../../../lib/hooks/reviews";
 import { KEY_TO_ACTION } from "./constants";
@@ -27,8 +29,23 @@ export function FindingsPanel({
   const action = useFindingAction();
   const [hideLow, setHideLow] = React.useState(false);
   const [focusIdx, setFocusIdx] = React.useState(0);
+  // Single-select severity filter, local to this run's panel.
+  const [severity, setSeverity] = React.useState<Severity | null>(null);
 
-  const shown = React.useMemo(() => visibleFindings(findings, hideLow), [findings, hideLow]);
+  // Pills count every severity present in the run, before any filter applies.
+  const counts = React.useMemo(() => tallySeverities(findings), [findings]);
+
+  // If the active severity runs out (e.g. after a dismiss), drop the filter.
+  React.useEffect(() => {
+    if (!severity) return;
+    const left = severity === "CRITICAL" ? counts.critical : severity === "WARNING" ? counts.warning : counts.suggestion;
+    if (left === 0) setSeverity(null);
+  }, [severity, counts]);
+
+  const shown = React.useMemo(
+    () => visibleFindings(findings, hideLow).filter((f) => !severity || f.severity === severity),
+    [findings, hideLow, severity],
+  );
 
   // j/k navigation + a/d shortcuts on the focused finding (keyboard).
   React.useEffect(() => {
@@ -48,6 +65,7 @@ export function FindingsPanel({
   return (
     <div>
       <div style={s.toolbar}>
+        <SeverityFilterPills counts={counts} active={severity} onChange={setSeverity} />
         <div style={s.toggleGroup}>
           {t("panel.hideLowConfidence")}
           <Toggle on={hideLow} onChange={setHideLow} size={16} />

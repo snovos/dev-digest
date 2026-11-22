@@ -47,3 +47,5 @@ _Empty for now. Add a line per spec as it is written, for example:_
 - `pr-list.md` — PR list per repo, filters, import
 - `review-run.md` — running and reading an agent review
 - `cost-badge.md` — cost per run and per PR in the PR list, Agent runs card and run drawer
+- `findings-counters.md` — per-severity findings counters on the PR list and Agent runs card, and the findings modal
+- `review-run-severity-filter.md` — single-select severity pills that filter one review run's findings

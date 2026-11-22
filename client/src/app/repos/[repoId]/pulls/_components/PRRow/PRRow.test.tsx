@@ -48,6 +48,17 @@ describe("PRRow — Cost column", () => {
     expect(screen.getByText("$0.014")).toBeInTheDocument();
   });
 
+  it("shows the latest review's severity counters in the Findings column", () => {
+    renderRow(pr({ findings: { critical: 2, warning: 2, suggestion: 1 } }));
+    expect(screen.getByLabelText("2 Critical")).toBeInTheDocument();
+    expect(screen.getByLabelText("1 Suggestion")).toBeInTheDocument();
+  });
+
+  it("shows a dash in the Findings column when the PR has no review", () => {
+    renderRow(pr({ findings: null, score: null, cost_usd: null }));
+    expect(screen.queryByRole("group")).not.toBeInTheDocument();
+  });
+
   it("shows '-' when the PR has no priced run", () => {
     renderRow(pr({ cost_usd: null, score: null }));
     expect(screen.getByText("-")).toBeInTheDocument();

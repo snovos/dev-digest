@@ -3,8 +3,11 @@
 import React from "react";
 import { useTranslations } from "next-intl";
 import { Badge, Icon, CircularScore, type IconName } from "@devdigest/ui";
-import type { RunSummary, PrCommit } from "@devdigest/shared";
+import type { RunSummary, PrCommit, ReviewRecord } from "@devdigest/shared";
+import type { Severity } from "@devdigest/ui";
 import { formatCost, formatTokenCount } from "@/lib/format-cost";
+import { tallySeverities } from "@/lib/severity-tally";
+import { SeverityCounts } from "@/components/SeverityCounts";
 
 /**
  * PR timeline — every agent run interleaved with the PR's commits, newest-first
@@ -88,12 +91,18 @@ function tsOf(s: string | null | undefined): number {
 export function RunHistory({
   runs,
   commits = [],
+  reviews = [],
   onOpenTrace,
   onGoToReview,
+  onOpenFindings,
   onDelete,
 }: {
   runs: RunSummary[];
   commits?: PrCommit[];
+  /** Persisted reviews (with their findings) — grouped by run_id for the counters. */
+  reviews?: ReviewRecord[];
+  /** Open the findings modal for a run, on the clicked severity. */
+  onOpenFindings?: (runId: string, severity: Severity) => void;
   /** Open the trace + log drawer for a run (the logs icon). */
   onOpenTrace: (runId: string) => void;
   /** Jump to this run's inline review accordion below (clicking the agent name). */
@@ -101,6 +110,12 @@ export function RunHistory({
   onDelete?: (runId: string) => void;
 }) {
   const t = useTranslations("prReview");
+  // run_id → that run's persisted findings (a run produces one review).
+  const findingsByRun = React.useMemo(() => {
+    const m = new Map<string, ReviewRecord["findings"]>();
+    for (const rv of reviews) if (rv.run_id) m.set(rv.run_id, rv.findings);
+    return m;
+  }, [reviews]);
   if (runs.length === 0 && commits.length === 0) return null;
 
   const items: TimelineItem[] = [
@@ -190,9 +205,17 @@ export function RunHistory({
                 </div>
               )}
               {settled && (
-                <div style={{ fontSize: 12, color: "var(--text-muted)" }}>
-                  {t("runStatus.findings", { count: r.findings_count ?? 0 })}
-                  {(r.blockers ?? 0) > 0 ? t("runStatus.blockers", { count: r.blockers ?? 0 }) : ""}
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+                  <SeverityCounts
+                    counts={findingsByRun.has(r.run_id) ? tallySeverities(findingsByRun.get(r.run_id)!) : null}
+                    onSelect={onOpenFindings ? (sev) => onOpenFindings(r.run_id, sev) : undefined}
+                    emptyLabel={t("findings.noFindings")}
+                  />
+                  {(r.blockers ?? 0) > 0 && (
+                    <span style={{ fontSize: 13, color: "var(--text-muted)" }}>
+                      {t("runStatus.blockers", { count: r.blockers ?? 0 })}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
