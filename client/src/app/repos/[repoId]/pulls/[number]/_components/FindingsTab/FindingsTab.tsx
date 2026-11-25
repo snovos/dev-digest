@@ -5,9 +5,11 @@ import { Icon, Badge, Button, SectionLabel, EmptyState } from "@devdigest/ui";
 import { RunStatus } from "../RunStatus";
 import { RunHistory } from "../RunHistory/RunHistory";
 import { ReviewRunAccordion } from "../ReviewRunAccordion";
+import { RunFindingsModal } from "../RunFindingsModal";
 import { s } from "./styles";
 import type { FindingRecord, ReviewRecord, RunSummary, PrCommit } from "@devdigest/shared";
 import type { UseMutationResult } from "@tanstack/react-query";
+import type { Severity } from "@devdigest/ui";
 
 interface FindingsTabProps {
   prId: string | null;
@@ -67,6 +69,9 @@ export function FindingsTab({
   // opens + scrolls to that run's accordion below. The nonce re-triggers the
   // scroll even when the same run is clicked twice.
   const [target, setTarget] = React.useState<{ runId: string; n: number } | null>(null);
+
+  // Severity counter on a run → findings modal for that run, on that severity.
+  const [openFindings, setOpenFindings] = React.useState<{ runId: string; severity: Severity | null } | null>(null);
   const handleGoToReview = useCallback((runId: string) => {
     setTarget((p) => ({ runId, n: (p?.n ?? 0) + 1 }));
   }, []);
@@ -131,8 +136,10 @@ export function FindingsTab({
           <RunHistory
             runs={prRuns ?? []}
             commits={prCommits}
+            reviews={runs}
             onOpenTrace={handleOpenTrace}
             onGoToReview={handleGoToReview}
+            onOpenFindings={(runId, severity) => setOpenFindings({ runId, severity })}
             onDelete={handleDelete}
           />
         </div>
@@ -166,6 +173,13 @@ export function FindingsTab({
             targetNonce={target?.n ?? 0}
           />
         ))
+      )}
+      {openFindings && (
+        <RunFindingsModal
+          findings={runs.filter((r) => r.run_id === openFindings.runId).flatMap((r) => r.findings)}
+          initialSeverity={openFindings.severity}
+          onClose={() => setOpenFindings(null)}
+        />
       )}
     </section>
   );

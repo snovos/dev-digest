@@ -9,6 +9,7 @@ import { IdParams } from '../_shared/schemas.js';
 import { AppError, NotFoundError } from '../../platform/errors.js';
 import { deriveReviewStatus } from './status.js';
 import { runCost } from '../reviews/run-cost.js';
+import { countFindingsByPr } from './findings-counts.js';
 
 /**
  * F1 — pulls module. PR import via Octokit (list + per-PR detail).
@@ -117,17 +118,40 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
     // grouping is cheap. (The per-severity FINDINGS breakdown is intentionally
     // not surfaced on the list — findings live on the PR detail page.)
     const prIds = rows.map((r) => r.id);
-    const latestReviewByPr = new Map<string, { score: number | null }>();
+    const latestReviewByPr = new Map<string, { id: string; score: number | null }>();
     if (prIds.length > 0) {
       const reviewRows = await container.db
-        .select({ prId: t.reviews.prId, score: t.reviews.score })
+        .select({ id: t.reviews.id, prId: t.reviews.prId, score: t.reviews.score })
         .from(t.reviews)
         .where(and(inArray(t.reviews.prId, prIds), eq(t.reviews.kind, 'review')))
         .orderBy(desc(t.reviews.createdAt));
       // Rows are newest-first → first seen per PR is the latest review.
       for (const rv of reviewRows) {
-        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { score: rv.score });
+        if (!latestReviewByPr.has(rv.prId)) latestReviewByPr.set(rv.prId, { id: rv.id, score: rv.score });
       }
+    }
+
+    // Per-PR FINDINGS by severity, counted over each PR's latest review only
+    // (findings-counts.ts). One join query; a PR without a review gets null.
+    const latestReviewIdByPr = new Map<string, string>();
+    for (const [prId, rv] of latestReviewByPr) latestReviewIdByPr.set(prId, rv.id);
+    let findingsByPr = new Map<string, { critical: number; warning: number; suggestion: number }>();
+    if (latestReviewIdByPr.size > 0) {
+      const findingRows = await container.db
+        .select({
+          prId: t.reviews.prId,
+          reviewId: t.findings.reviewId,
+          severity: t.findings.severity,
+        })
+        .from(t.findings)
+        .innerJoin(t.reviews, eq(t.reviews.id, t.findings.reviewId))
+        .where(
+          and(
+            inArray(t.reviews.prId, [...latestReviewIdByPr.keys()]),
+            eq(t.reviews.kind, 'review'),
+          ),
+        );
+      findingsByPr = countFindingsByPr(findingRows, latestReviewIdByPr);
     }
 
     // Per-PR COST = sum of derived cost over every priced agent run of the PR
@@ -181,6 +205,7 @@ export default async function pullsRoutes(appBase: FastifyInstance) {
         updated_at: r.updatedAt?.toISOString() ?? null,
         score: review ? review.score : null,
         cost_usd: costByPr.get(r.id) ?? null,
+        findings: review ? (findingsByPr.get(r.id) ?? { critical: 0, warning: 0, suggestion: 0 }) : null,
       };
     });
   });
